@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Briefing</title>
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script>
+  window.addEventListener("error", function (e) {
+    var root = document.getElementById("root");
+    if (root && !root.innerHTML) {
+      root.innerHTML = "<pre style='padding:24px;color:#a00;white-space:pre-wrap;font-family:monospace;'>Failed to load: " +
+        (e.message || "unknown error") + "\n" + (e.filename ? e.filename + ":" + e.lineno : "") + "</pre>";
+    }
+  });
+</script>
+<style>
+  body { margin: 0; background: #ffffff; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+/* ============================================================
+   DATA
+   Add new facts here — nothing else needs to change.
+   type: "single" | "list" | "ranked"
+     single -> a is a string
+     list   -> a is an array, order doesn't matter
+     ranked -> a is an array, order matters (largest/first/etc.)
+   whyItMatters is always shown alongside the answer.
+   volatility: "volatile" (people/roles — changes with elections,
+     appointments, resignations) or "stable" (structural/constitutional
+     facts that rarely change). Drives how soon a fact gets flagged
+     for a recheck in Browse mode.
+   lastVerified: the date this fact was last confirmed against a
+     live source. Update it whenever you re-verify a fact with Claude.
+   ============================================================ */
+
+const V = "2026-07-19"; // last verification pass — see all facts below
+
+const FACTS = [
+  // Executive Branch
+  { id: "exec-president", tier: "us", layer: "whoswho", type: "single", q: "Who is the President of the United States?", a: "Donald Trump", whyItMatters: "47th president; inaugurated January 20, 2025.", volatility: "volatile", lastVerified: V },
+  { id: "exec-vp", tier: "us", layer: "whoswho", type: "single", q: "Who is the Vice President?", a: "JD Vance", whyItMatters: "Former U.S. Senator from Ohio; a likely 2028 contender.", volatility: "volatile", lastVerified: V },
+  { id: "exec-state", tier: "us", layer: "whoswho", type: "single", q: "Who is the Secretary of State?", a: "Marco Rubio", whyItMatters: "Former U.S. Senator from Florida; leads U.S. foreign policy and diplomacy.", volatility: "volatile", lastVerified: V },
+  { id: "exec-treasury", tier: "us", layer: "whoswho", type: "single", q: "Who is the Secretary of the Treasury?", a: "Scott Bessent", whyItMatters: "Oversees federal finances, currency, and tax policy.", volatility: "volatile", lastVerified: V },
+  { id: "exec-defense", tier: "us", layer: "whoswho", type: "single", q: "Who is the Secretary of Defense?", a: "Pete Hegseth", whyItMatters: "Heads the Department of Defense (also styled Secretary of War).", volatility: "volatile", lastVerified: V },
+  { id: "exec-ag", tier: "us", layer: "whoswho", type: "single", q: "Who is the (Acting) Attorney General?", a: "Todd Blanche", whyItMatters: "Acting AG since April 2026; nominated for the permanent post, with confirmation pending as of mid-2026.", volatility: "volatile", lastVerified: V },
+  { id: "exec-dhs", tier: "us", layer: "whoswho", type: "single", q: "Who is the Secretary of Homeland Security?", a: "Markwayne Mullin", whyItMatters: "Took over in 2026, succeeding Kristi Noem, who had left her post as South Dakota's governor to join the Cabinet.", volatility: "volatile", lastVerified: V },
+
+  // Congressional Leadership
+  { id: "cong-speaker", tier: "us", layer: "whoswho", type: "single", q: "Who is the Speaker of the House?", a: "Mike Johnson", whyItMatters: "Republican, Louisiana's 4th district; controls the House floor agenda.", volatility: "volatile", lastVerified: V },
+  { id: "cong-house-maj", tier: "us", layer: "whoswho", type: "single", q: "Who is the House Majority Leader?", a: "Steve Scalise", whyItMatters: "Republican, Louisiana's 1st district.", volatility: "volatile", lastVerified: V },
+  { id: "cong-house-min", tier: "us", layer: "whoswho", type: "single", q: "Who is the House Minority Leader?", a: "Hakeem Jeffries", whyItMatters: "Democrat, New York's 8th district; leads House Democratic strategy.", volatility: "volatile", lastVerified: V },
+  { id: "cong-senate-maj", tier: "us", layer: "whoswho", type: "single", q: "Who is the Senate Majority Leader?", a: "John Thune", whyItMatters: "Republican, South Dakota; sets the Senate's legislative calendar.", volatility: "volatile", lastVerified: V },
+  { id: "cong-senate-min", tier: "us", layer: "whoswho", type: "single", q: "Who is the Senate Minority Leader?", a: "Chuck Schumer", whyItMatters: "Democrat, New York.", volatility: "volatile", lastVerified: V },
+
+  // Governors — all 50 states
+  { id: "gov-al", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Alabama?", a: "Kay Ivey (R)", whyItMatters: "Term-limited; the seat is open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ak", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Alaska?", a: "Mike Dunleavy (R)", whyItMatters: "Term-limited; the seat is open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-az", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Arizona?", a: "Katie Hobbs (D)", whyItMatters: "Won a closely contested 2022 race in a top presidential swing state; up for re-election in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ar", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Arkansas?", a: "Sarah Huckabee Sanders (R)", whyItMatters: "Former White House Press Secretary under Trump; daughter of former governor Mike Huckabee.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ca", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of California?", a: "Gavin Newsom (D)", whyItMatters: "Term-limited in 2026 — one of the most closely watched open-seat races.", volatility: "volatile", lastVerified: V },
+  { id: "gov-co", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Colorado?", a: "Jared Polis (D)", whyItMatters: "Term-limited; often mentioned as a national Democratic figure.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ct", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Connecticut?", a: "Ned Lamont (D)", whyItMatters: "A wealthy businessman-turned-governor of a reliably Democratic state.", volatility: "volatile", lastVerified: V },
+  { id: "gov-de", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Delaware?", a: "Matt Meyer (D)", whyItMatters: "Took office in 2025, succeeding John Carney.", volatility: "volatile", lastVerified: V },
+  { id: "gov-fl", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Florida?", a: "Ron DeSantis (R)", whyItMatters: "Term-limited; seat open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ga", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Georgia?", a: "Brian Kemp (R)", whyItMatters: "Term-limited; seat open in 2026 in a top presidential battleground.", volatility: "volatile", lastVerified: V },
+  { id: "gov-hi", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Hawaii?", a: "Josh Green (D)", whyItMatters: "A physician by training; led Hawaii's response to the 2023 Maui wildfires.", volatility: "volatile", lastVerified: V },
+  { id: "gov-id", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Idaho?", a: "Brad Little (R)", whyItMatters: "Governor of one of the most heavily Republican states.", volatility: "volatile", lastVerified: V },
+  { id: "gov-il", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Illinois?", a: "JB Pritzker (D)", whyItMatters: "Heir to the Hyatt hotel fortune; a major Democratic donor network hub.", volatility: "volatile", lastVerified: V },
+  { id: "gov-in", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Indiana?", a: "Mike Braun (R)", whyItMatters: "Former U.S. Senator; took office as governor in 2025.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ia", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Iowa?", a: "Kim Reynolds (R)", whyItMatters: "Iowa's first female governor; prominent in early presidential-caucus politics.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ks", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Kansas?", a: "Laura Kelly (D)", whyItMatters: "A Democratic governor in a reliably Republican state — a notable split-ticket result.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ky", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Kentucky?", a: "Andy Beshear (D)", whyItMatters: "A Democratic governor in a reliably Republican state; frequently mentioned as a 2028 presidential prospect.", volatility: "volatile", lastVerified: V },
+  { id: "gov-la", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Louisiana?", a: "Jeff Landry (R)", whyItMatters: "Took office in 2024, succeeding Democrat John Bel Edwards.", volatility: "volatile", lastVerified: V },
+  { id: "gov-me", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Maine?", a: "Janet Mills (D)", whyItMatters: "Maine's first female governor; term-limited in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-md", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Maryland?", a: "Wes Moore (D)", whyItMatters: "Maryland's first Black governor; widely discussed as a future national candidate.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ma", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Massachusetts?", a: "Maura Healey (D)", whyItMatters: "The first woman and first openly lesbian governor of Massachusetts.", volatility: "volatile", lastVerified: V },
+  { id: "gov-mi", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Michigan?", a: "Gretchen Whitmer (D)", whyItMatters: "Term-limited; seat open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-mn", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Minnesota?", a: "Tim Walz (D)", whyItMatters: "The Democratic vice-presidential nominee in 2024, running alongside Kamala Harris.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ms", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Mississippi?", a: "Tate Reeves (R)", whyItMatters: "Governor of one of the most heavily Republican states.", volatility: "volatile", lastVerified: V },
+  { id: "gov-mo", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Missouri?", a: "Mike Kehoe (R)", whyItMatters: "Took office in 2025, succeeding Mike Parson.", volatility: "volatile", lastVerified: V },
+  { id: "gov-mt", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Montana?", a: "Greg Gianforte (R)", whyItMatters: "A former tech executive; not term-limited until 2028.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ne", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Nebraska?", a: "Jim Pillen (R)", whyItMatters: "A former hog farmer and university regent turned governor.", volatility: "volatile", lastVerified: V },
+  { id: "gov-nv", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Nevada?", a: "Joe Lombardo (R)", whyItMatters: "A Republican governor in a presidential swing state; up for re-election in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-nh", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of New Hampshire?", a: "Kelly Ayotte (R)", whyItMatters: "A former U.S. Senator; took office as governor in 2025.", volatility: "volatile", lastVerified: V },
+  { id: "gov-nj", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of New Jersey?", a: "Mikie Sherrill (D)", whyItMatters: "A former Navy helicopter pilot and U.S. Representative; took office in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-nm", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of New Mexico?", a: "Michelle Lujan Grisham (D)", whyItMatters: "Term-limited; seat open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ny", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of New York?", a: "Kathy Hochul (D)", whyItMatters: "Took office in 2021; running for a second full term in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-nc", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of North Carolina?", a: "Josh Stein (D)", whyItMatters: "Took office in 2025 in a top presidential battleground state.", volatility: "volatile", lastVerified: V },
+  { id: "gov-nd", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of North Dakota?", a: "Kelly Armstrong (R)", whyItMatters: "A former U.S. Representative; took office as governor in 2025.", volatility: "volatile", lastVerified: V },
+  { id: "gov-oh", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Ohio?", a: "Mike DeWine (R)", whyItMatters: "Term-limited; seat open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ok", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Oklahoma?", a: "Kevin Stitt (R)", whyItMatters: "Term-limited; seat open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-or", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Oregon?", a: "Tina Kotek (D)", whyItMatters: "Oregon's first openly lesbian governor.", volatility: "volatile", lastVerified: V },
+  { id: "gov-pa", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Pennsylvania?", a: "Josh Shapiro (D)", whyItMatters: "Widely discussed as a future national candidate.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ri", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Rhode Island?", a: "Dan McKee (D)", whyItMatters: "Took office in 2021 after Gina Raimondo joined the Biden Cabinet.", volatility: "volatile", lastVerified: V },
+  { id: "gov-sc", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of South Carolina?", a: "Henry McMaster (R)", whyItMatters: "Term-limited; seat open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-sd", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of South Dakota?", a: "Larry Rhoden (R)", whyItMatters: "Became governor in 2025 after Kristi Noem joined the Trump Cabinet.", volatility: "volatile", lastVerified: V },
+  { id: "gov-tn", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Tennessee?", a: "Bill Lee (R)", whyItMatters: "Term-limited; seat open in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-tx", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Texas?", a: "Greg Abbott (R)", whyItMatters: "Seeking a fourth term in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-ut", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Utah?", a: "Spencer Cox (R)", whyItMatters: "Chaired the National Governors Association; known for a civility-focused campaign style.", volatility: "volatile", lastVerified: V },
+  { id: "gov-vt", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Vermont?", a: "Phil Scott (R)", whyItMatters: "A Republican governor of a reliably Democratic state.", volatility: "volatile", lastVerified: V },
+  { id: "gov-va", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Virginia?", a: "Abigail Spanberger (D)", whyItMatters: "Former U.S. Representative; took office in 2026.", volatility: "volatile", lastVerified: V },
+  { id: "gov-wa", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Washington?", a: "Bob Ferguson (D)", whyItMatters: "Washington's former longtime Attorney General; took office as governor in 2025.", volatility: "volatile", lastVerified: V },
+  { id: "gov-wv", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of West Virginia?", a: "Patrick Morrisey (R)", whyItMatters: "West Virginia's former Attorney General; took office as governor in 2025.", volatility: "volatile", lastVerified: V },
+  { id: "gov-wi", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Wisconsin?", a: "Tony Evers (D)", whyItMatters: "Perennial swing-state governor.", volatility: "volatile", lastVerified: V },
+  { id: "gov-wy", tier: "us", layer: "whoswho", type: "single", q: "Who is the Governor of Wyoming?", a: "Mark Gordon (R)", whyItMatters: "Governor of the least populous and most Republican-leaning state.", volatility: "volatile", lastVerified: V },
+
+  // By the Numbers
+  { id: "num-house", tier: "us", layer: "howitworks", type: "single", q: "How many voting members are in the U.S. House of Representatives?", a: "435", whyItMatters: "Fixed by law since 1929 — this is why apportionment shifts seats between states rather than growing the total.", volatility: "stable", lastVerified: V },
+  { id: "num-senate", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. Senators are there?", a: "100", whyItMatters: "Two per state, regardless of population — the basis of small-state leverage in the Senate.", volatility: "stable", lastVerified: V },
+  { id: "num-scotus", tier: "us", layer: "howitworks", type: "single", q: "How many Justices sit on the Supreme Court?", a: "9", whyItMatters: "One Chief Justice, eight Associate Justices.", volatility: "stable", lastVerified: V },
+  { id: "num-electoral", tier: "us", layer: "howitworks", type: "single", q: "How many electoral votes are needed to win the presidency?", a: "270", whyItMatters: "A majority of the 538 total electoral votes.", volatility: "stable", lastVerified: V },
+  { id: "num-house-term", tier: "us", layer: "howitworks", type: "single", q: "How long is a U.S. House term?", a: "2 years", whyItMatters: "The entire House is up for election every cycle, which is why it reacts faster to political mood swings.", volatility: "stable", lastVerified: V },
+  { id: "num-senate-term", tier: "us", layer: "howitworks", type: "single", q: "How long is a U.S. Senate term?", a: "6 years", whyItMatters: "Staggered — about a third of the Senate is up every 2 years.", volatility: "stable", lastVerified: V },
+  { id: "num-pres-term", tier: "us", layer: "howitworks", type: "single", q: "How long is a presidential term, and how many can a president serve?", a: "4 years, max 2 terms", whyItMatters: "Set by the 22nd Amendment (1951).", volatility: "stable", lastVerified: V },
+  { id: "num-branches", tier: "us", layer: "howitworks", type: "list", q: "What are the three branches of the U.S. federal government?", a: ["Executive", "Legislative", "Judicial"], whyItMatters: "The foundation of separation of powers — nearly every policy fight runs through one or more of these branches.", volatility: "stable", lastVerified: V },
+
+  // State Apportionment (U.S. House seats, 2020 Census) — all 50 states
+  { id: "state-al", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Alabama have?", a: "7", whyItMatters: "Reliably Republican at the federal level.", volatility: "stable", lastVerified: V },
+  { id: "state-ak", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Alaska have?", a: "1", whyItMatters: "One of the few states with a single, at-large House district.", volatility: "stable", lastVerified: V },
+  { id: "state-az", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Arizona have?", a: "9", whyItMatters: "A genuine swing state — a top target every cycle.", volatility: "stable", lastVerified: V },
+  { id: "state-ar", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Arkansas have?", a: "4", whyItMatters: "Solidly Republican since the 2010s realignment.", volatility: "stable", lastVerified: V },
+  { id: "state-ca", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does California have?", a: "52", whyItMatters: "The most of any state.", volatility: "stable", lastVerified: V },
+  { id: "state-co", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Colorado have?", a: "8", whyItMatters: "Trended Democratic over the past two decades; now reliably blue in presidential races.", volatility: "stable", lastVerified: V },
+  { id: "state-ct", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Connecticut have?", a: "5", whyItMatters: "Reliably Democratic; the entire delegation is Democratic.", volatility: "stable", lastVerified: V },
+  { id: "state-de", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Delaware have?", a: "1", whyItMatters: "President Biden's home state; a single at-large district.", volatility: "stable", lastVerified: V },
+  { id: "state-fl", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Florida have?", a: "28", whyItMatters: "Gained 1 seat after the 2020 Census.", volatility: "stable", lastVerified: V },
+  { id: "state-ga", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Georgia have?", a: "14", whyItMatters: "Tied with North Carolina; a top-tier presidential battleground.", volatility: "stable", lastVerified: V },
+  { id: "state-hi", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Hawaii have?", a: "2", whyItMatters: "One of the most reliably Democratic states in presidential elections.", volatility: "stable", lastVerified: V },
+  { id: "state-id", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Idaho have?", a: "2", whyItMatters: "One of the most heavily Republican states.", volatility: "stable", lastVerified: V },
+  { id: "state-il", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Illinois have?", a: "17", whyItMatters: "Tied with Pennsylvania.", volatility: "stable", lastVerified: V },
+  { id: "state-in", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Indiana have?", a: "9", whyItMatters: "Reliably Republican; Indianapolis is a Democratic pocket.", volatility: "stable", lastVerified: V },
+  { id: "state-ia", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Iowa have?", a: "4", whyItMatters: "Hosts the first presidential nominating caucuses; has trended Republican since 2016.", volatility: "stable", lastVerified: V },
+  { id: "state-ks", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Kansas have?", a: "4", whyItMatters: "Reliably Republican statewide, but has elected Democratic governors.", volatility: "stable", lastVerified: V },
+  { id: "state-ky", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Kentucky have?", a: "6", whyItMatters: "Reliably Republican federally despite a Democratic governor.", volatility: "stable", lastVerified: V },
+  { id: "state-la", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Louisiana have?", a: "6", whyItMatters: "Uses a unique 'jungle primary' system for many elections.", volatility: "stable", lastVerified: V },
+  { id: "state-me", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Maine have?", a: "2", whyItMatters: "Splits its electoral votes by congressional district, one of only two states to do so.", volatility: "stable", lastVerified: V },
+  { id: "state-md", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Maryland have?", a: "8", whyItMatters: "Reliably Democratic; borders Washington, D.C.", volatility: "stable", lastVerified: V },
+  { id: "state-ma", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Massachusetts have?", a: "9", whyItMatters: "The entire congressional delegation is Democratic.", volatility: "stable", lastVerified: V },
+  { id: "state-mi", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Michigan have?", a: "13", whyItMatters: "Part of the 'blue wall' — central to both parties' Electoral College math.", volatility: "stable", lastVerified: V },
+  { id: "state-mn", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Minnesota have?", a: "8", whyItMatters: "The longest-running Democratic presidential streak of any state.", volatility: "stable", lastVerified: V },
+  { id: "state-ms", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Mississippi have?", a: "4", whyItMatters: "Has the highest Black population share of any state, shaping its politics.", volatility: "stable", lastVerified: V },
+  { id: "state-mo", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Missouri have?", a: "8", whyItMatters: "Once a bellwether state; now reliably Republican.", volatility: "stable", lastVerified: V },
+  { id: "state-mt", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Montana have?", a: "2", whyItMatters: "Gained a second seat after the 2020 Census.", volatility: "stable", lastVerified: V },
+  { id: "state-ne", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Nebraska have?", a: "3", whyItMatters: "Splits its electoral votes by district, like Maine — its Omaha-based district has gone Democratic.", volatility: "stable", lastVerified: V },
+  { id: "state-nv", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Nevada have?", a: "4", whyItMatters: "A perennial presidential swing state.", volatility: "stable", lastVerified: V },
+  { id: "state-nh", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does New Hampshire have?", a: "2", whyItMatters: "Hosts the first presidential primary.", volatility: "stable", lastVerified: V },
+  { id: "state-nj", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does New Jersey have?", a: "12", whyItMatters: "Reliably Democratic federally, but its governor's races are unusually competitive.", volatility: "stable", lastVerified: V },
+  { id: "state-nm", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does New Mexico have?", a: "3", whyItMatters: "Trending Democratic; has a large Hispanic population share.", volatility: "stable", lastVerified: V },
+  { id: "state-ny", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does New York have?", a: "26", whyItMatters: "Lost 1 seat after the 2020 Census.", volatility: "stable", lastVerified: V },
+  { id: "state-nc", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does North Carolina have?", a: "14", whyItMatters: "Tied with Georgia.", volatility: "stable", lastVerified: V },
+  { id: "state-nd", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does North Dakota have?", a: "1", whyItMatters: "A single at-large district; among the most Republican states.", volatility: "stable", lastVerified: V },
+  { id: "state-oh", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Ohio have?", a: "15", whyItMatters: "Ohio's size plus its swing-state history make it a perennial presidential battleground.", volatility: "stable", lastVerified: V },
+  { id: "state-ok", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Oklahoma have?", a: "5", whyItMatters: "One of the most heavily Republican states.", volatility: "stable", lastVerified: V },
+  { id: "state-or", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Oregon have?", a: "6", whyItMatters: "Reliably Democratic statewide, but with a large rural Republican base.", volatility: "stable", lastVerified: V },
+  { id: "state-pa", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Pennsylvania have?", a: "17", whyItMatters: "Tied with Illinois; a top-tier presidential battleground.", volatility: "stable", lastVerified: V },
+  { id: "state-ri", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Rhode Island have?", a: "2", whyItMatters: "The smallest state by area; reliably Democratic.", volatility: "stable", lastVerified: V },
+  { id: "state-sc", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does South Carolina have?", a: "7", whyItMatters: "Hosts an early, influential presidential primary.", volatility: "stable", lastVerified: V },
+  { id: "state-sd", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does South Dakota have?", a: "1", whyItMatters: "Home state of Senate Majority Leader John Thune.", volatility: "stable", lastVerified: V },
+  { id: "state-tn", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Tennessee have?", a: "9", whyItMatters: "Reliably Republican; Nashville and Memphis are Democratic pockets.", volatility: "stable", lastVerified: V },
+  { id: "state-tx", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Texas have?", a: "38", whyItMatters: "Gained 2 seats after the 2020 Census.", volatility: "stable", lastVerified: V },
+  { id: "state-ut", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Utah have?", a: "4", whyItMatters: "Reliably Republican, with a distinct political culture shaped by the LDS Church.", volatility: "stable", lastVerified: V },
+  { id: "state-vt", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Vermont have?", a: "1", whyItMatters: "Senator Bernie Sanders's home state; reliably Democratic despite a Republican governor.", volatility: "stable", lastVerified: V },
+  { id: "state-va", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Virginia have?", a: "11", whyItMatters: "The only state holding its governor's race the year after a presidential election — an early bellwether.", volatility: "stable", lastVerified: V },
+  { id: "state-wa", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Washington have?", a: "10", whyItMatters: "Deep blue federally, but its delegation includes competitive suburban seats.", volatility: "stable", lastVerified: V },
+  { id: "state-wv", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does West Virginia have?", a: "2", whyItMatters: "Once reliably Democratic, now one of the most Republican states.", volatility: "stable", lastVerified: V },
+  { id: "state-wi", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Wisconsin have?", a: "8", whyItMatters: "Part of the 'blue wall' and one of the closest-margin states in recent elections.", volatility: "stable", lastVerified: V },
+  { id: "state-wy", tier: "us", layer: "howitworks", type: "single", q: "How many U.S. House seats does Wyoming have?", a: "1", whyItMatters: "The least populous state; the most Republican in recent presidential elections.", volatility: "stable", lastVerified: V },
+  { id: "state-rank-tx-fl-ny", tier: "us", layer: "howitworks", type: "ranked", q: "Rank Texas, Florida, and New York by U.S. House seats — largest first.", a: ["Texas", "Florida", "New York"], whyItMatters: "Delegation size shapes each state's weight in the Electoral College and the national primary calendar.", volatility: "stable", lastVerified: V },
+
+  // Dallas — Who's Who
+  { id: "dal-mayor", tier: "dallas", layer: "whoswho", type: "single", q: "Who is the Mayor of Dallas?", a: "Eric Johnson", whyItMatters: "Re-elected in 2023 with 98.7% of the vote; switched from Democrat to Republican in 2023 while in office. Term-limited in 2027.", volatility: "volatile", lastVerified: V },
+  { id: "dal-manager", tier: "dallas", layer: "whoswho", type: "single", q: "Who is the Dallas City Manager?", a: "Kimberly Bizor Tolbert", whyItMatters: "The city's actual chief executive under the council-manager system; the first Black woman to hold the role.", volatility: "volatile", lastVerified: V },
+  { id: "dal-county-judge", tier: "dallas", layer: "whoswho", type: "single", q: "Who is the Dallas County Judge?", a: "Clay Jenkins", whyItMatters: "Despite the title, this is an executive role — leads Dallas County's Commissioners Court, not a courtroom.", volatility: "volatile", lastVerified: V },
+  { id: "dal-disd-super", tier: "dallas", layer: "whoswho", type: "single", q: "Who is the Superintendent of Dallas ISD?", a: "Stephanie Elizalde", whyItMatters: "Leads the second-largest school district in Texas; school finance is one of the biggest recurring fights in Texas politics.", volatility: "volatile", lastVerified: V },
+  { id: "dal-fed-president", tier: "dallas", layer: "whoswho", type: "single", q: "Who is the President of the Federal Reserve Bank of Dallas?", a: "Lorie K. Logan", whyItMatters: "A voting or rotating voice on the FOMC, the committee that sets national monetary policy — directly relevant to economic policy work.", volatility: "volatile", lastVerified: V },
+
+  // Dallas — How It Works
+  { id: "dal-govt-form", tier: "dallas", layer: "howitworks", type: "single", q: "What form of government does the City of Dallas use?", a: "Council-manager", whyItMatters: "The mayor is one of 15 council votes and largely a legislative figure; the city manager runs day-to-day operations as the real chief executive.", volatility: "stable", lastVerified: V },
+  { id: "dal-council-size", tier: "dallas", layer: "howitworks", type: "single", q: "How many members sit on the Dallas City Council, including the mayor?", a: "15 (14 district members plus the mayor)", whyItMatters: "Each of the 14 districts elects its own representative, so city politics is highly local and district-specific.", volatility: "stable", lastVerified: V },
+  { id: "dal-election-timing", tier: "dallas", layer: "howitworks", type: "single", q: "When are Dallas municipal elections held?", a: "May, in odd-numbered years", whyItMatters: "Off-cycle timing means very low turnout, which raises the influence of small, organized groups of voters.", volatility: "stable", lastVerified: V },
+  { id: "dal-fed-district", tier: "dallas", layer: "howitworks", type: "single", q: "Which Federal Reserve district is headquartered in Dallas, and what does it cover?", a: "The 11th District — Texas, northern Louisiana, and southern New Mexico", whyItMatters: "One of 12 regional Reserve Banks that, with the Board of Governors, make up the Federal Reserve System.", volatility: "stable", lastVerified: V },
+  { id: "dal-party-history", tier: "dallas", layer: "howitworks", type: "single", q: "What notable political move did Mayor Eric Johnson make in 2023?", a: "Switched parties, from Democrat to Republican, while in office", whyItMatters: "A rare mid-term party switch by a big-city mayor, reflecting Dallas's identity as a Democratic-leaning city that still elects some Republicans citywide.", volatility: "stable", lastVerified: V },
+
+  // Texas — Who's Who
+  { id: "tx-ltgov", tier: "texas", layer: "whoswho", type: "single", q: "Who is the Lieutenant Governor of Texas?", a: "Dan Patrick", whyItMatters: "Presides over the Senate and controls its agenda — often considered more powerful day-to-day than the governor.", volatility: "volatile", lastVerified: V },
+  { id: "tx-ag", tier: "texas", layer: "whoswho", type: "single", q: "Who is the Attorney General of Texas?", a: "Ken Paxton", whyItMatters: "Won the 2026 GOP U.S. Senate primary runoff over incumbent John Cornyn; will remain AG until/unless he wins the Senate seat in November.", volatility: "volatile", lastVerified: V },
+  { id: "tx-comptroller", tier: "texas", layer: "whoswho", type: "single", q: "Who is the Texas Comptroller of Public Accounts?", a: "Kelly Hancock", whyItMatters: "The state's chief financial officer, revenue estimator, and treasurer — appointed after Glenn Hegar left to lead the Texas A&M University System.", volatility: "volatile", lastVerified: V },
+  { id: "tx-land-comm", tier: "texas", layer: "whoswho", type: "single", q: "Who is the Texas Land Commissioner?", a: "Dawn Buckingham", whyItMatters: "Manages state-owned lands and the Permanent School Fund, one of the largest education endowments in the country.", volatility: "volatile", lastVerified: V },
+  { id: "tx-ag-comm", tier: "texas", layer: "whoswho", type: "single", q: "Who is the Texas Agriculture Commissioner?", a: "Sid Miller", whyItMatters: "Oversees a $100 billion agricultural economy; lost re-nomination in the 2026 Republican primary.", volatility: "volatile", lastVerified: V },
+  { id: "tx-rrc", tier: "texas", layer: "whoswho", type: "single", q: "Who chairs the Texas Railroad Commission?", a: "Christi Craddick", whyItMatters: "Despite the name, this three-member elected body regulates oil and gas, not railroads — central to Texas energy policy.", volatility: "volatile", lastVerified: V },
+  { id: "tx-house-speaker", tier: "texas", layer: "whoswho", type: "single", q: "Who is the Speaker of the Texas House?", a: "Dustin Burrows", whyItMatters: "Often called the third most powerful official in Texas, after the governor and lieutenant governor.", volatility: "volatile", lastVerified: V },
+  { id: "tx-senators", tier: "texas", layer: "whoswho", type: "list", q: "Who are Texas's two current U.S. Senators?", a: ["John Cornyn", "Ted Cruz"], whyItMatters: "Cornyn lost the 2026 GOP primary to Ken Paxton and won't be the party's nominee — the first Texas senator to lose renomination since 1970.", volatility: "volatile", lastVerified: V },
+
+  // Texas — How It Works
+  { id: "tx-plural-exec", tier: "texas", layer: "howitworks", type: "single", q: "What is distinctive about how executive power is structured in Texas government?", a: "It's a 'plural executive' — power is spread across many separately elected officials, not concentrated in the governor", whyItMatters: "Unlike most states, Texas's governor can't simply direct the attorney general, comptroller, or land commissioner — they all answer to voters independently.", volatility: "stable", lastVerified: V },
+  { id: "tx-legislature-cycle", tier: "texas", layer: "howitworks", type: "single", q: "How often does the Texas Legislature meet in regular session, and for how long?", a: "Every two years (odd-numbered years), for 140 days", whyItMatters: "Most major state legislation has to get done in that single 140-day window, or wait two more years (barring a special session).", volatility: "stable", lastVerified: V },
+  { id: "tx-courts", tier: "texas", layer: "howitworks", type: "single", q: "What is unique about Texas's highest courts?", a: "Texas splits its highest court in two — a Supreme Court for civil cases and a Court of Criminal Appeals for criminal cases", whyItMatters: "Only Texas and Oklahoma use this bifurcated system; most states have one court of last resort.", volatility: "stable", lastVerified: V },
+  { id: "tx-no-income-tax", tier: "texas", layer: "howitworks", type: "single", q: "Does Texas levy a state income tax?", a: "No — Texas is one of a handful of states with no state income tax", whyItMatters: "The state instead relies on sales tax and property tax, which fuels perennial property-tax-relief fights in the Legislature.", volatility: "stable", lastVerified: V },
+  { id: "tx-redistricting-2026", tier: "texas", layer: "howitworks", type: "single", q: "What unusual redistricting fight has been playing out in Texas in 2026?", a: "A GOP-led effort to redraw congressional district lines mid-decade, ahead of the normal post-census schedule", whyItMatters: "It triggered a national tit-for-tat, with California and other Democratic-led states pursuing their own redistricting in response.", volatility: "volatile", lastVerified: V },
+
+  // United States — How It Works
+  { id: "us-filibuster", tier: "us", layer: "howitworks", type: "single", q: "What is the Senate filibuster?", a: "A tactic letting a minority of senators block a vote by extending debate, effectively requiring 60 votes to end debate (cloture)", whyItMatters: "It's why most ordinary legislation needs 60 Senate votes in practice, even though only 51 are needed to actually pass a bill.", volatility: "stable", lastVerified: V },
+  { id: "us-reconciliation", tier: "us", layer: "howitworks", type: "single", q: "What is budget reconciliation?", a: "A special process letting certain budget-related bills pass the Senate with a simple majority, bypassing the filibuster", whyItMatters: "It's the main vehicle both parties have used in recent years to pass major tax and spending legislation.", volatility: "stable", lastVerified: V },
+  { id: "us-bill-to-law", tier: "us", layer: "howitworks", type: "ranked", q: "Put these steps in order for a federal bill to become law.", a: ["Introduction", "Committee markup", "Floor vote", "Presidential signature"], whyItMatters: "Most bills die at the committee stage — getting a markup at all is a meaningful sign of momentum.", volatility: "stable", lastVerified: V },
+  { id: "us-cbo-score", tier: "us", layer: "howitworks", type: "single", q: "What does it mean when the CBO 'scores' a bill?", a: "The Congressional Budget Office estimates its cost or savings to the federal budget, usually over 10 years", whyItMatters: "A bad CBO score can sink a bill's momentum even if it's politically popular.", volatility: "stable", lastVerified: V },
+  { id: "us-debt-ceiling", tier: "us", layer: "howitworks", type: "single", q: "What is the debt ceiling?", a: "A statutory cap on how much the federal government can borrow, requiring separate Congressional action to raise it", whyItMatters: "Raising it doesn't authorize new spending — it just lets the government pay for spending Congress already approved.", volatility: "stable", lastVerified: V },
+  { id: "us-continuing-resolution", tier: "us", layer: "howitworks", type: "single", q: "What is a continuing resolution?", a: "Temporary legislation funding the government at existing levels when regular appropriations bills haven't passed", whyItMatters: "It's the usual way a government shutdown gets avoided (or doesn't) when Congress is behind schedule.", volatility: "stable", lastVerified: V },
+];
+
+const TIERS = [
+  { key: "dallas", label: "Dallas" },
+  { key: "texas", label: "Texas" },
+  { key: "us", label: "U.S." },
+];
+
+const LAYERS = [
+  { key: "whoswho", label: "Who's Who" },
+  { key: "howitworks", label: "How It Works" },
+];
+
+const TYPE_HINT = {
+  single: "Think of the answer, then reveal.",
+  list: "Try to recall the full list, then reveal.",
+  ranked: "Try to recall them in order, then reveal.",
+};
+
+const STORAGE_KEY = "briefing-progress-v3";
+const INTERVALS = [1, 2, 4, 9, 16]; // rounds until next review, indexed by box - 1
+const ROUND_SIZE = 10; // facts per round (due facts first, new facts fill the rest)
+const RECHECK_DAYS = { volatile: 100, stable: 730 }; // how long before a fact is flagged for a recheck
+
+function tierLabel(key) {
+  return (TIERS.find((t) => t.key === key) || {}).label || key;
+}
+
+function layerLabel(key) {
+  return (LAYERS.find((l) => l.key === key) || {}).label || key;
+}
+
+function factLabel(fact) {
+  return `${tierLabel(fact.tier)} · ${layerLabel(fact.layer)}`;
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(fromStr, toStr) {
+  const a = new Date(fromStr + "T00:00:00");
+  const b = new Date(toStr + "T00:00:00");
+  return Math.round((b - a) / 86400000);
+}
+
+function isStale(fact) {
+  return daysBetween(fact.lastVerified, todayStr()) > RECHECK_DAYS[fact.volatility];
+}
+
+function defaultProgress() {
+  return { facts: {}, stats: { roundsCompleted: 0, lastSessionDate: null, streak: 0 } };
+}
+
+async function loadProgress() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    /* nothing saved yet */
+  }
+  return defaultProgress();
+}
+
+async function saveProgress(progress) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+  } catch (e) {
+    /* non-fatal: this session's progress just won't persist */
+  }
+}
+
+function buildRound(progress) {
+  const completed = progress.stats.roundsCompleted;
+  const dueIds = FACTS.filter((f) => progress.facts[f.id] && progress.facts[f.id].dueAtRound <= completed).map((f) => f.id);
+  const newIds = FACTS.filter((f) => !progress.facts[f.id]).map((f) => f.id);
+  const due = shuffle(dueIds).slice(0, ROUND_SIZE);
+  const budgetLeft = Math.max(0, ROUND_SIZE - due.length);
+  const fresh = shuffle(newIds).slice(0, budgetLeft);
+  return shuffle([...due, ...fresh]);
+}
+
+/* ============================================================
+   APP
+   ============================================================ */
+
+function TheBriefing() {
+  const [view, setView] = useState("study"); // study | browse
+  const [progress, setProgress] = useState(null);
+
+  useEffect(() => {
+    loadProgress().then(setProgress);
+  }, []);
+
+  if (!progress) return <div className="briefing-app"><style>{CSS}</style></div>;
+
+  const dueCount = FACTS.filter((f) => progress.facts[f.id] && progress.facts[f.id].dueAtRound <= progress.stats.roundsCompleted).length;
+  const newCount = FACTS.filter((f) => !progress.facts[f.id]).length;
+  const tierCounts = TIERS.map((t) => `${t.label}: ${FACTS.filter((f) => f.tier === t.key).length}`).join(" · ");
+
+  return (
+    <div className="briefing-app">
+      <style>{CSS}</style>
+
+      <header className="masthead">
+        <div className="masthead-top">
+          <div>
+            <div className="masthead-title">The Briefing</div>
+            <div className="masthead-sub">Essential Political &amp; Policy Knowledge</div>
+          </div>
+          <div className="mode-tabs" role="tablist" aria-label="View">
+            <button className={"mode-tab" + (view === "study" ? " active" : "")} onClick={() => setView("study")} role="tab" aria-selected={view === "study"}>
+              Study
+            </button>
+            <button className={"mode-tab" + (view === "browse" ? " active" : "")} onClick={() => setView("browse")} role="tab" aria-selected={view === "browse"}>
+              Browse
+            </button>
+          </div>
+        </div>
+        <div className="streak-line">
+          {dueCount} due for review · {newCount} not yet studied
+        </div>
+        <div className="streak-line">{tierCounts}</div>
+        <div className="masthead-rule" />
+      </header>
+
+      {view === "study" && <StudyRound progress={progress} onProgressChange={setProgress} />}
+      {view === "browse" && <BrowseMode />}
+    </div>
+  );
+}
+
+/* ============================================================
+   STUDY ROUND — auto-built, interleaved, self-graded Leitner round.
+   Rounds are counted, not dated — you can run one or several in a
+   single sitting, or skip a day, and the schedule just tracks how
+   many rounds a fact has waited, not how many calendar days.
+   ============================================================ */
+
+function StudyRound({ progress, onProgressChange }) {
+  const [stage, setStage] = useState("start"); // start | reviewing | done
+  const [queue, setQueue] = useState([]);
+  const [index, setIndex] = useState(0);
+  const [revealed, setRevealed] = useState(false);
+  const [results, setResults] = useState([]);
+
+  const round = useMemo(() => buildRound(progress), [progress]);
+
+  function start() {
+    setQueue(round);
+    setIndex(0);
+    setRevealed(false);
+    setResults([]);
+    setStage("reviewing");
+  }
+
+  function grade(correct) {
+    const factId = queue[index];
+    setResults((r) => [...r, { id: factId, correct }]);
+    if (index + 1 < queue.length) {
+      setIndex(index + 1);
+      setRevealed(false);
+    } else {
+      finish([...results, { id: factId, correct }]);
+    }
+  }
+
+  async function finish(finalResults) {
+    const newRoundCount = progress.stats.roundsCompleted + 1;
+    const facts = { ...progress.facts };
+    finalResults.forEach(({ id, correct }) => {
+      const rec = facts[id] || { box: 1 };
+      const newBox = correct ? Math.min(5, (rec.box || 1) + 1) : 1;
+      facts[id] = { box: newBox, dueAtRound: newRoundCount + INTERVALS[newBox - 1] };
+    });
+
+    const today = todayStr();
+    const wasYesterday = progress.stats.lastSessionDate === addDays(today, -1);
+    const wasToday = progress.stats.lastSessionDate === today;
+    let streak = progress.stats.streak || 0;
+    if (wasToday) {
+      /* already logged today, streak unchanged */
+    } else if (wasYesterday) {
+      streak += 1;
+    } else {
+      streak = 1;
+    }
+
+    const updated = {
+      facts,
+      stats: { roundsCompleted: newRoundCount, lastSessionDate: today, streak },
+    };
+    await saveProgress(updated);
+    onProgressChange(updated);
+    setStage("done");
+  }
+
+  if (stage === "start") {
+    if (round.length === 0) {
+      return (
+        <div className="panel">
+          <p className="panel-copy">Nothing to review right now, and every fact has already been introduced.</p>
+          <p className="panel-copy-muted">Switch to Browse to revisit anything, or check back once something's due again.</p>
+        </div>
+      );
+    }
+    const dueN = FACTS.filter((f) => progress.facts[f.id] && progress.facts[f.id].dueAtRound <= progress.stats.roundsCompleted).length;
+    const inRoundDueN = Math.min(dueN, round.length);
+    const freshN = round.length - inRoundDueN;
+    return (
+      <div className="panel">
+        <p className="panel-copy">
+          This round: <strong>{round.length} facts</strong> — {inRoundDueN} due for review, {freshN} new, mixed across categories.
+        </p>
+        <p className="panel-copy-muted">Reviews are prioritized first; new facts fill the rest.</p>
+        <button className="primary-btn" onClick={start}>
+          Start round
+        </button>
+      </div>
+    );
+  }
+
+  if (stage === "reviewing") {
+    const fact = FACTS.find((f) => f.id === queue[index]);
+    return (
+      <div className="panel">
+        <div className="quiz-progress">
+          <span>
+            {index + 1} of {queue.length}
+          </span>
+          <span className="tab-flag">{factLabel(fact)}</span>
+        </div>
+        <h3 className="question-text">{fact.q}</h3>
+        {!revealed && (
+          <>
+            <p className="type-hint">{TYPE_HINT[fact.type]}</p>
+            <button className="primary-btn" onClick={() => setRevealed(true)}>
+              Reveal answer
+            </button>
+          </>
+        )}
+        {revealed && (
+          <div className="reveal-block">
+            <AnswerDisplay fact={fact} />
+            <p className="why-it-matters">{fact.whyItMatters}</p>
+            <div className="grade-buttons">
+              <button className="grade-btn grade-miss" onClick={() => grade(false)}>
+                Missed it
+              </button>
+              <button className="grade-btn grade-got" onClick={() => grade(true)}>
+                Got it
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // done
+  const total = results.length;
+  const correct = results.filter((r) => r.correct).length;
+
+  return (
+    <div className="panel">
+      <h3 className="summary-score">
+        {correct}/{total} <span className="summary-percent">remembered</span>
+      </h3>
+      <p className="panel-copy-muted">{progress.stats.roundsCompleted} rounds completed total</p>
+      <button className="primary-btn" onClick={() => setStage("start")}>
+        Back to start
+      </button>
+    </div>
+  );
+}
+
+/* ============================================================
+   BROWSE — ungraded preview, filterable by category, and a
+   "needs a check" filter surfacing facts overdue for a recheck.
+   ============================================================ */
+
+function BrowseMode() {
+  const [activeTier, setActiveTier] = useState("all");
+  const [activeLayer, setActiveLayer] = useState("all");
+  const [staleOnly, setStaleOnly] = useState(false);
+  const [flipped, setFlipped] = useState(() => new Set());
+
+  let visible = FACTS;
+  if (activeTier !== "all") visible = visible.filter((f) => f.tier === activeTier);
+  if (activeLayer !== "all") visible = visible.filter((f) => f.layer === activeLayer);
+  if (staleOnly) visible = visible.filter(isStale);
+  const staleTotal = FACTS.filter(isStale).length;
+
+  function toggleFlip(id) {
+    setFlipped((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <>
+      <div className="category-bar">
+        <button className={"chip" + (activeTier === "all" ? " chip-active" : "")} onClick={() => setActiveTier("all")}>
+          All places
+        </button>
+        {TIERS.map((t) => (
+          <button key={t.key} className={"chip" + (activeTier === t.key ? " chip-active" : "")} onClick={() => setActiveTier(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="category-bar">
+        <button className={"chip" + (activeLayer === "all" ? " chip-active" : "")} onClick={() => setActiveLayer("all")}>
+          All layers
+        </button>
+        {LAYERS.map((l) => (
+          <button key={l.key} className={"chip" + (activeLayer === l.key ? " chip-active" : "")} onClick={() => setActiveLayer(l.key)}>
+            {l.label}
+          </button>
+        ))}
+        {staleTotal > 0 && (
+          <button className={"chip chip-stale" + (staleOnly ? " chip-active" : "")} onClick={() => setStaleOnly((v) => !v)}>
+            Needs a check ({staleTotal})
+          </button>
+        )}
+      </div>
+      <div className="grid">
+        {visible.map((f) => (
+          <button key={f.id} className="card" onClick={() => toggleFlip(f.id)} aria-pressed={flipped.has(f.id)}>
+            <span className="tab-flag card-flag">{factLabel(f)}</span>
+            {isStale(f) && <span className="stale-badge">recheck</span>}
+            <span className={"card-inner" + (flipped.has(f.id) ? " is-flipped" : "")}>
+              <span className="card-face card-front">
+                <span className="card-question">{f.q}</span>
+                <span className="card-hint">tap to reveal</span>
+              </span>
+              <span className="card-face card-back">
+                <AnswerDisplay fact={f} compact />
+                <span className="card-detail">{f.whyItMatters}</span>
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/* ============================================================
+   SHARED — answer rendering by fact type
+   ============================================================ */
+
+function AnswerDisplay({ fact, compact }) {
+  const cls = "card-answer" + (compact ? " card-answer-compact" : "");
+  if (fact.type === "list") {
+    return (
+      <ul className={cls + " answer-list"}>
+        {fact.a.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    );
+  }
+  if (fact.type === "ranked") {
+    return (
+      <ol className={cls + " answer-list"}>
+        {fact.a.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ol>
+    );
+  }
+  return <div className={cls}>{fact.a}</div>;
+}
+
+/* ============================================================
+   STYLE — navy / maroon / white, Fraunces + Inter + IBM Plex Mono.
+   Green and red are reserved strictly for right/wrong feedback.
+   ============================================================ */
+
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+
+.briefing-app {
+  --ink: #16233d;
+  --maroon: #6b1f36;
+  --paper: #ffffff;
+  --surface: #f7f6f4;
+  --slate: #5b6b7d;
+  --line: #dcdde2;
+  --forest: #3f6b52;
+  --danger: #c0392b;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  padding: 28px 24px 48px;
+  border-radius: 12px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.masthead-top { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px; }
+.masthead-title { font-family: 'Fraunces', serif; font-weight: 600; font-size: 34px; letter-spacing: -0.01em; }
+.masthead-sub { font-size: 13px; color: var(--slate); letter-spacing: 0.04em; text-transform: uppercase; margin-top: 2px; }
+.streak-line { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--slate); margin-top: 10px; }
+.masthead-rule { height: 2px; background: var(--ink); margin-top: 16px; margin-bottom: 20px; opacity: 0.85; }
+
+.mode-tabs { display: flex; gap: 4px; background: var(--surface); padding: 4px; border-radius: 999px; }
+.mode-tab { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13px; padding: 8px 18px; border-radius: 999px; border: none; background: transparent; color: var(--slate); cursor: pointer; }
+.mode-tab.active { background: var(--ink); color: var(--paper); }
+.mode-tab:focus-visible, .chip:focus-visible, .card:focus-visible, .primary-btn:focus-visible, .grade-btn:focus-visible {
+  outline: 2px solid var(--maroon); outline-offset: 2px;
+}
+
+.category-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.chip { font-family: 'Inter', sans-serif; font-size: 12.5px; font-weight: 500; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.chip-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.chip-stale { border-style: dashed; color: var(--slate); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 24px; }
+.panel-copy { font-size: 15px; margin: 0 0 6px; }
+.panel-copy-muted { font-size: 13px; color: var(--slate); margin: 0 0 18px; }
+.primary-btn { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px; background: var(--ink); color: var(--paper); border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
+
+.tab-flag { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.03em; color: #fff; background: var(--maroon); padding: 4px 9px; border-radius: 4px; max-width: calc(100% - 4px); box-sizing: border-box; }
+
+.quiz-progress { display: flex; justify-content: space-between; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--slate); margin-bottom: 14px; }
+.question-text { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 500; margin: 0 0 16px; line-height: 1.35; }
+.type-hint { font-size: 12.5px; color: var(--slate); margin: 0 0 16px; }
+.reveal-block { border-top: 1px dashed var(--line); padding-top: 16px; margin-top: 4px; }
+.card-answer { font-family: 'Fraunces', serif; font-weight: 600; font-size: 20px; color: var(--maroon); margin: 0 0 8px; }
+.answer-list { padding-left: 20px; margin: 0 0 8px; }
+.answer-list li { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; color: var(--maroon); }
+.why-it-matters { font-size: 13.5px; color: var(--slate); line-height: 1.5; margin: 0 0 18px; }
+.grade-buttons { display: flex; gap: 10px; }
+.grade-btn { flex: 1; font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px; padding: 12px; border-radius: 8px; cursor: pointer; border: 1.5px solid; background: var(--paper); }
+.grade-miss { color: var(--danger); border-color: var(--danger); }
+.grade-got { color: var(--forest); border-color: var(--forest); }
+
+.summary-score { font-family: 'Fraunces', serif; font-size: 36px; margin: 0 0 8px; }
+.summary-percent { font-size: 16px; color: var(--slate); font-weight: 400; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.card { position: relative; text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 0; cursor: pointer; min-height: 150px; perspective: 1000px; overflow: hidden; }
+.card-flag { position: absolute; top: 0; left: 0; border-radius: 0 0 6px 0; z-index: 1; }
+.stale-badge { position: absolute; top: 8px; right: 8px; z-index: 1; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.04em; color: var(--slate); border: 1px dashed var(--line); padding: 2px 6px; border-radius: 3px; text-transform: uppercase; background: var(--paper); }
+.card-inner { position: relative; display: block; min-height: 150px; transform-style: preserve-3d; transition: transform 0.5s cubic-bezier(.4,.2,.2,1); }
+.card-inner.is-flipped { transform: rotateY(180deg); }
+.card-face { position: absolute; inset: 0; backface-visibility: hidden; padding: 30px 16px 14px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+.card-back { transform: rotateY(180deg); }
+.card-question { font-family: 'Fraunces', serif; font-size: 16px; line-height: 1.3; }
+.card-hint { font-size: 11px; color: var(--slate); text-transform: uppercase; letter-spacing: 0.05em; }
+.card-answer-compact { font-size: 17px; }
+.card-detail { font-size: 12.5px; color: var(--slate); line-height: 1.4; }
+
+@media (max-width: 520px) {
+  .masthead-title { font-size: 26px; }
+  .grid { grid-template-columns: 1fr; }
+}
+`;
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<TheBriefing />);
+</script>
+</body>
+</html>
